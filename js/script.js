@@ -796,7 +796,7 @@ function renderMarksTable() {
     });
 
     const average = marksData.length ? total / marksData.length : 0;
-    if (marksAverageElement) marksAverageElement.textContent = marksData.length ? `Average: ${average.toFixed(1)}%` : "Average: â€”";
+    if (marksAverageElement) marksAverageElement.textContent = marksData.length ? `Average: ${average.toFixed(1)}%` : "Average: \u2014";
 }
 
 if (marksEditorForm) {
@@ -931,7 +931,7 @@ function renderAttendance() {
             "aria-label", totalClasses ? `Overall attendance is ${overallPercentage.toFixed(1)} percent` : "No attendance records yet"
         );
     }
-    if (overallPercentageElement) overallPercentageElement.textContent = totalClasses ? `${overallPercentage.toFixed(1)}%` : "â€”";
+    if (overallPercentageElement) overallPercentageElement.textContent = totalClasses ? `${overallPercentage.toFixed(1)}%` : "\u2014";
     if (totalClassesElement) totalClassesElement.textContent = totalClasses;
     if (presentClassesElement) presentClassesElement.textContent = totalPresent;
     if (absentClassesElement) absentClassesElement.textContent = totalAbsent;
@@ -1585,7 +1585,7 @@ function renderAssignmentDashboardSummaries() {
     if (dashboardAssignments) dashboardAssignments.textContent = assignmentsData.length;
 
     const dashboardAssignmentNote = document.getElementById("dashboardAssignmentNote");
-    if (dashboardAssignmentNote) dashboardAssignmentNote.textContent = `${pending.length} pending Â· ${dueSoon.length} due soon`;
+    if (dashboardAssignmentNote) dashboardAssignmentNote.textContent = `${pending.length} pending \u00B7 ${dueSoon.length} due soon`;
 
     const navAssignmentCount = document.getElementById("navAssignmentCount");
     if (navAssignmentCount) navAssignmentCount.textContent = pending.length;
@@ -1782,7 +1782,7 @@ if (dashboardAttendance) {
         ? (dashboardCardTotalPresent / dashboardCardTotalClasses) * 100
         : 0;
 
-    dashboardAttendance.textContent = dashboardCardTotalClasses ? `${dashboardCardPercentage.toFixed(1)}%` : "â€”";
+    dashboardAttendance.textContent = dashboardCardTotalClasses ? `${dashboardCardPercentage.toFixed(1)}%` : "\u2014";
 }
 
 const dashboardAssignments =
@@ -1836,7 +1836,7 @@ const heroAttendanceValue =
     document.getElementById("heroAttendanceValue");
 
 if (heroAttendanceValue) {
-    heroAttendanceValue.textContent = dashboardTotalClasses ? `${dashboardOverallPercentage.toFixed(1)}%` : "â€”";
+    heroAttendanceValue.textContent = dashboardTotalClasses ? `${dashboardOverallPercentage.toFixed(1)}%` : "\u2014";
 }
 
 const attendanceInsight =
@@ -1860,7 +1860,7 @@ const dashboardAssignmentNote =
     document.getElementById("dashboardAssignmentNote");
 
 if (dashboardAssignmentNote) {
-    dashboardAssignmentNote.textContent = `${pendingAssignments.length} pending Â· ${dueSoonAssignments.length} due soon`;
+    dashboardAssignmentNote.textContent = `${pendingAssignments.length} pending \u00B7 ${dueSoonAssignments.length} due soon`;
 }
 
 const navAssignmentCount =
