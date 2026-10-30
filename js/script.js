@@ -195,7 +195,7 @@ if (registerForm) {
             }
 
             registerForm.reset();
-            showAuthMessage(registerMessage, "Demo account created on this browser. You can now sign in with this email and password.", "success");
+            showAuthMessage(registerMessage, "Account created on this browser. You can now sign in with this email and password.", "success");
         } catch (error) {
             showAuthMessage(registerMessage, "Could not create the local demo account. Check browser storage and try again.", "danger");
         } finally {
