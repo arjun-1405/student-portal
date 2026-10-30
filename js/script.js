@@ -201,7 +201,7 @@ if (registerForm) {
         } finally {
             registrationInProgress = false;
             if (registerButton) registerButton.disabled = false;
-            if (registerButtonText) registerButtonText.textContent = "Create demo account";
+            if (registerButtonText) registerButtonText.textContent = "Create account";
         }
     });
 }
