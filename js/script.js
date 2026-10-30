@@ -232,6 +232,48 @@ if (forgotPassword) {
 const isDashboardPage = window.location.pathname.includes("dashboard.html");
 const currentDemoEmail = DemoAuth.normalizeEmail(sessionStorage.getItem("studentEmail"));
 const currentDemoAuthType = sessionStorage.getItem("studentDemoAuthType");
+
+let activeStudentStorageEmail = currentDemoEmail;
+
+function getAccountStorageKey(key, email = activeStudentStorageEmail) {
+    return `studentPortal:${encodeURIComponent(email)}:${key}`;
+}
+
+function readAccountData(key) {
+    return localStorage.getItem(getAccountStorageKey(key));
+}
+
+function writeAccountData(key, value) {
+    localStorage.setItem(getAccountStorageKey(key), value);
+}
+
+function migrateAccountData(previousEmail, nextEmail) {
+    const keys = ["profile", "marks", "attendance", "courses", "assignments", "section"];
+    const previousPrefix = `studentPortal:${encodeURIComponent(previousEmail)}:`;
+    const nextPrefix = `studentPortal:${encodeURIComponent(nextEmail)}:`;
+    const values = keys.map(key => ({
+        key,
+        value: localStorage.getItem(previousPrefix + key)
+    }));
+    const copiedKeys = [];
+
+    try {
+        values.forEach(entry => {
+            if (entry.value === null) return;
+            const destinationKey = nextPrefix + entry.key;
+            if (localStorage.getItem(destinationKey) !== null) {
+                throw new Error("The destination account already has saved student data.");
+            }
+            localStorage.setItem(destinationKey, entry.value);
+            copiedKeys.push(destinationKey);
+        });
+    } catch (error) {
+        copiedKeys.forEach(key => localStorage.removeItem(key));
+        throw error;
+    }
+
+    keys.forEach(key => localStorage.removeItem(previousPrefix + key));
+}
 const hasRegisteredDemoSession =
     currentDemoAuthType === "registered" &&
     Boolean(DemoAuth.findAccount(currentDemoEmail));
@@ -250,7 +292,7 @@ function logout() {
     ["studentLoggedIn", "studentEmail", "studentName", "studentDemoAuthType"].forEach(function(key) {
         sessionStorage.removeItem(key);
     });
-    localStorage.removeItem("activeSection");
+    localStorage.removeItem(getAccountStorageKey("section"));;
     window.location.href = "index.html";
 }
 
@@ -296,7 +338,7 @@ const defaultStudentData = {
 
 function loadStudentData() {
     try {
-        const savedData = JSON.parse(localStorage.getItem("studentProfile") || "null");
+        const savedData = JSON.parse(readAccountData("profile") || "null");
         const profile = { ...defaultStudentData };
         if (savedData && typeof savedData === "object" && !Array.isArray(savedData)) {
             Object.keys(defaultStudentData).forEach(function(key) {
@@ -340,9 +382,9 @@ function renderStudentProfile() {
     const initials = getStudentInitials(studentData.name);
     const profileFields = [
         ["studentName", studentData.name],
-        ["studentDepartment", studentData.department],
-        ["studentSemester", studentData.semester],
-        ["studentEmail", studentData.email],
+        ["studentDepartment", studentData.department || "Not provided"],
+        ["studentSemester", studentData.semester || ""],
+        ["studentEmail", studentData.email || "Not provided"],
         ["studentRegisterNumber", studentData.registerNumber || "Not provided"],
         ["studentDateOfBirth", studentData.dateOfBirth || "Not provided"],
         ["studentGender", studentData.gender || "Not provided"],
@@ -458,13 +500,25 @@ if (profileEditor) {
             const input = document.getElementById(optionalProfileFields[key]);
             updatedOptionalFields[key] = input ? input.value.trim() : "";
         });
-        const accountUpdate = DemoAuth.updateAccountProfile(studentData.email, updatedName, updatedEmail);
+        const previousStudentEmail = studentData.email;
+        const accountUpdate = DemoAuth.updateAccountProfile(previousStudentEmail, updatedName, updatedEmail);
 
         if (!accountUpdate.ok) {
             profileUpdateStatus.textContent = accountUpdate.code === "duplicate-email"
                 ? "That email belongs to another local demo account. Choose a different email."
                 : "The account could not be updated in browser storage. Try again.";
             return;
+        }
+
+        if (updatedEmail !== previousStudentEmail) {
+            try {
+                migrateAccountData(previousStudentEmail, updatedEmail);
+                activeStudentStorageEmail = updatedEmail;
+            } catch (error) {
+                DemoAuth.updateAccountProfile(updatedEmail, studentData.name, previousStudentEmail);
+                profileUpdateStatus.textContent = "Could not move this profile to the new email. No profile changes were saved.";
+                return;
+            }
         }
 
         studentData.name = updatedName;
@@ -474,7 +528,7 @@ if (profileEditor) {
         Object.assign(studentData, updatedOptionalFields);
 
         try {
-            localStorage.setItem("studentProfile", JSON.stringify(studentData));
+            writeAccountData("profile", JSON.stringify(studentData));
             if (localStorage.getItem("rememberedEmail")) {
                 localStorage.setItem("rememberedEmail", updatedEmail);
             }
@@ -543,10 +597,7 @@ navigationLinks.forEach(function(link) {
             mobileMenuBtn.setAttribute("aria-expanded", "false");
         }
 
-        localStorage.setItem(
-            "activeSection",
-            sectionName
-        );
+        writeAccountData("section", sectionName);
 
     });
 
@@ -569,7 +620,7 @@ document.querySelectorAll("[data-go-section]").forEach(function(button) {
 /* ================= RESTORE ACTIVE SECTION ================= */
 
 const savedSection =
-    localStorage.getItem("activeSection");
+    readAccountData("section");
 
 if (savedSection && isDashboardPage) {
 
@@ -603,17 +654,11 @@ if (savedSection && isDashboardPage) {
 
 /* ================= MARKS ================= */
 
-const defaultMarksData = [
-    { subject: "Database Management Systems", marks: 86 },
-    { subject: "Web Development", marks: 91 },
-    { subject: "Python Programming", marks: 78 },
-    { subject: "Software Engineering", marks: 84 },
-    { subject: "Computer Networks", marks: 88 }
-];
+const defaultMarksData = [];
 
 function loadMarksData() {
     try {
-        const saved = JSON.parse(localStorage.getItem("studentMarks") || "null");
+        const saved = JSON.parse(readAccountData("marks") || "null");
         if (!Array.isArray(saved)) return defaultMarksData.map(item => ({ ...item }));
         return saved.filter(item =>
             item && typeof item.subject === "string" && item.subject.trim() &&
@@ -661,7 +706,7 @@ const marksEditorMessage = document.getElementById("marksEditorMessage");
 
 function saveMarksData() {
     try {
-        localStorage.setItem("studentMarks", JSON.stringify(marksData));
+        writeAccountData("marks", JSON.stringify(marksData));
         return true;
     } catch (error) {
         if (marksEditorMessage) marksEditorMessage.textContent =
@@ -681,6 +726,15 @@ function resetMarksEditor() {
 function renderMarksTable() {
     if (!marksTableBody) return;
     marksTableBody.replaceChildren();
+    if (!marksData.length) {
+        const emptyRow = document.createElement("tr");
+        const emptyCell = document.createElement("td");
+        emptyCell.colSpan = 4;
+        emptyCell.className = "text-center text-muted py-4";
+        emptyCell.textContent = "No marks added yet. Use Edit Marks to enter your results.";
+        emptyRow.appendChild(emptyCell);
+        marksTableBody.appendChild(emptyRow);
+    }
     let total = 0;
 
     marksData.forEach(function(item, index) {
@@ -742,8 +796,7 @@ function renderMarksTable() {
     });
 
     const average = marksData.length ? total / marksData.length : 0;
-    if (marksAverageElement) marksAverageElement.textContent =
-        `Average: ${average.toFixed(1)}%`;
+    if (marksAverageElement) marksAverageElement.textContent = marksData.length ? `Average: ${average.toFixed(1)}%` : "Average: â€”";
 }
 
 if (marksEditorForm) {
@@ -803,17 +856,11 @@ renderMarksTable();
 
 /* ================= ATTENDANCE ================= */
 
-const defaultAttendanceData = [
-    { subject: "Database Management Systems", total: 40, present: 36 },
-    { subject: "Web Development", total: 35, present: 32 },
-    { subject: "Python Programming", total: 38, present: 31 },
-    { subject: "Software Engineering", total: 42, present: 37 },
-    { subject: "Computer Networks", total: 40, present: 34 }
-];
+const defaultAttendanceData = [];
 
 function loadAttendanceData() {
     try {
-        const saved = JSON.parse(localStorage.getItem("studentAttendance") || "null");
+        const saved = JSON.parse(readAccountData("attendance") || "null");
         if (!Array.isArray(saved)) return defaultAttendanceData.map(x => ({ ...x }));
         return saved.filter(x =>
             x && typeof x.subject === "string" && x.subject.trim() &&
@@ -852,7 +899,7 @@ const attendanceEditorTableBody = document.getElementById("attendanceEditorTable
 
 function saveAttendanceData() {
     try {
-        localStorage.setItem("studentAttendance", JSON.stringify(attendanceData));
+        writeAccountData("attendance", JSON.stringify(attendanceData));
         return true;
     } catch {
         if (attendanceEditorMessage) {
@@ -881,16 +928,22 @@ function renderAttendance() {
             "--attendance-angle", `${Math.min(overallPercentage, 100) * 3.6}deg`
         );
         attendanceProgressCircle.setAttribute(
-            "aria-label", `Overall attendance is ${overallPercentage.toFixed(1)} percent`
+            "aria-label", totalClasses ? `Overall attendance is ${overallPercentage.toFixed(1)} percent` : "No attendance records yet"
         );
     }
-    if (overallPercentageElement) overallPercentageElement.textContent = `${overallPercentage.toFixed(1)}%`;
+    if (overallPercentageElement) overallPercentageElement.textContent = totalClasses ? `${overallPercentage.toFixed(1)}%` : "â€”";
     if (totalClassesElement) totalClassesElement.textContent = totalClasses;
     if (presentClassesElement) presentClassesElement.textContent = totalPresent;
     if (absentClassesElement) absentClassesElement.textContent = totalAbsent;
 
     if (attendanceList) {
         attendanceList.replaceChildren();
+        if (!attendanceData.length) {
+            const empty = document.createElement("p");
+            empty.className = "dashboard-empty-state";
+            empty.textContent = "No attendance records yet. Use Manage Attendance to add your records.";
+            attendanceList.appendChild(empty);
+        }
         attendanceData.forEach(subject => {
             const percentage = subject.total ? subject.present / subject.total * 100 : 0;
             const item = document.createElement("div");
@@ -1040,18 +1093,11 @@ renderAttendance();
 
 /* ================= COURSES ================= */
 
-const defaultCoursesData = [
-    { code: "CS101", name: "Database Management Systems", instructor: "Dr. Kumar", progress: 80 },
-    { code: "CS102", name: "Web Development", instructor: "Ms. Priya", progress: 90 },
-    { code: "CS103", name: "Python Programming", instructor: "Mr. Arun", progress: 65 },
-    { code: "CS104", name: "Software Engineering", instructor: "Dr. Ravi", progress: 75 },
-    { code: "CS105", name: "Computer Networks", instructor: "Ms. Divya", progress: 70 },
-    { code: "CS106", name: "Data Analytics", instructor: "Mr. Suresh", progress: 60 }
-];
+const defaultCoursesData = [];
 
 function loadCoursesData() {
     try {
-        const saved = JSON.parse(localStorage.getItem("studentCourses") || "null");
+        const saved = JSON.parse(readAccountData("courses") || "null");
         if (!Array.isArray(saved)) return defaultCoursesData.map(x => ({ ...x }));
         return saved.filter(x =>
             x && typeof x.code === "string" && x.code.trim() &&
@@ -1087,7 +1133,7 @@ const coursesEditorTableBody = document.getElementById("coursesEditorTableBody")
 
 function saveCoursesData() {
     try {
-        localStorage.setItem("studentCourses", JSON.stringify(coursesData));
+        writeAccountData("courses", JSON.stringify(coursesData));
         return true;
     } catch {
         if (coursesEditorMessage) coursesEditorMessage.textContent = "Unable to save. Check browser storage settings.";
@@ -1105,6 +1151,15 @@ function resetCoursesEditor() {
 function renderCourses() {
     if (coursesContainer) {
         coursesContainer.replaceChildren();
+        if (!coursesData.length) {
+            const emptyColumn = document.createElement("div");
+            emptyColumn.className = "col-12";
+            const empty = document.createElement("div");
+            empty.className = "dashboard-empty-state";
+            empty.textContent = "No courses added yet. Use Manage Courses to add your semester courses.";
+            emptyColumn.appendChild(empty);
+            coursesContainer.appendChild(emptyColumn);
+        }
         coursesData.forEach(course => {
             const column = document.createElement("div");
             column.className = "col-md-6 col-lg-4 course-column";
@@ -1355,16 +1410,11 @@ function toAssignmentDateInput(dateText) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-const defaultAssignmentsData = [
-    { title: "SQL Queries Practice", subject: "Database Management Systems", dueDate: getAssignmentDateOffset(4), status: "Pending" },
-    { title: "Responsive Webpage", subject: "Web Development", dueDate: getAssignmentDateOffset(2), status: "Due Soon" },
-    { title: "Python Basics", subject: "Python Programming", dueDate: getAssignmentDateOffset(7), status: "Pending" },
-    { title: "Software Engineering Report", subject: "Software Engineering", dueDate: getAssignmentDateOffset(-3), status: "Completed" }
-];
+const defaultAssignmentsData = [];
 
 function loadAssignmentsData() {
     try {
-        const saved = JSON.parse(localStorage.getItem("studentAssignments") || "null");
+        const saved = JSON.parse(readAccountData("assignments") || "null");
         if (!Array.isArray(saved)) return defaultAssignmentsData.map(x => ({ ...x }));
         return saved.filter(x =>
             x && typeof x.title === "string" && x.title.trim() &&
@@ -1403,7 +1453,7 @@ var assignmentsEditorTableBody = document.getElementById("assignmentsEditorTable
 
 function saveAssignmentsData() {
     try {
-        localStorage.setItem("studentAssignments", JSON.stringify(assignmentsData));
+        writeAccountData("assignments", JSON.stringify(assignmentsData));
         return true;
     } catch {
         if (assignmentsEditorMessage) assignmentsEditorMessage.textContent =
@@ -1434,6 +1484,12 @@ function applyAssignmentFilters() {
 function renderAssignments() {
     if (assignmentsContainer) {
         assignmentsContainer.replaceChildren();
+        if (!assignmentsData.length) {
+            const empty = document.createElement("div");
+            empty.className = "dashboard-empty-state";
+            empty.textContent = "No assignments added yet. Use Manage Assignments to add your coursework.";
+            assignmentsContainer.appendChild(empty);
+        }
         assignmentsData.forEach(assignment => {
             const item = document.createElement("div");
             item.className = "assignment";
@@ -1529,8 +1585,7 @@ function renderAssignmentDashboardSummaries() {
     if (dashboardAssignments) dashboardAssignments.textContent = assignmentsData.length;
 
     const dashboardAssignmentNote = document.getElementById("dashboardAssignmentNote");
-    if (dashboardAssignmentNote) dashboardAssignmentNote.textContent =
-        `${pending.length} pending ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${dueSoon.length} due soon`;
+    if (dashboardAssignmentNote) dashboardAssignmentNote.textContent = `${pending.length} pending Â· ${dueSoon.length} due soon`;
 
     const navAssignmentCount = document.getElementById("navAssignmentCount");
     if (navAssignmentCount) navAssignmentCount.textContent = pending.length;
@@ -1727,8 +1782,7 @@ if (dashboardAttendance) {
         ? (dashboardCardTotalPresent / dashboardCardTotalClasses) * 100
         : 0;
 
-    dashboardAttendance.textContent =
-        `${dashboardCardPercentage.toFixed(1)}%`;
+    dashboardAttendance.textContent = dashboardCardTotalClasses ? `${dashboardCardPercentage.toFixed(1)}%` : "â€”";
 }
 
 const dashboardAssignments =
@@ -1774,7 +1828,7 @@ if (heroAttendanceRing) {
     );
     heroAttendanceRing.setAttribute(
         "aria-label",
-        `Attendance is ${dashboardOverallPercentage.toFixed(1)} percent`
+        dashboardTotalClasses ? `Attendance is ${dashboardOverallPercentage.toFixed(1)} percent` : "No attendance records yet"
     );
 }
 
@@ -1782,14 +1836,16 @@ const heroAttendanceValue =
     document.getElementById("heroAttendanceValue");
 
 if (heroAttendanceValue) {
-    heroAttendanceValue.textContent = `${dashboardOverallPercentage.toFixed(1)}%`;
+    heroAttendanceValue.textContent = dashboardTotalClasses ? `${dashboardOverallPercentage.toFixed(1)}%` : "â€”";
 }
 
 const attendanceInsight =
     document.getElementById("attendanceInsight");
 
 if (attendanceInsight) {
-    attendanceInsight.textContent = `Across ${dashboardTotalClasses} classes this semester`;
+    attendanceInsight.textContent = dashboardTotalClasses
+        ? `Across ${dashboardTotalClasses} classes this semester`
+        : "No attendance records yet";
 }
 
 const pendingAssignments = assignmentsData.filter(function(assignment) {
@@ -1804,8 +1860,7 @@ const dashboardAssignmentNote =
     document.getElementById("dashboardAssignmentNote");
 
 if (dashboardAssignmentNote) {
-    dashboardAssignmentNote.textContent =
-        `${pendingAssignments.length} pending ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${dueSoonAssignments.length} due soon`;
+    dashboardAssignmentNote.textContent = `${pendingAssignments.length} pending Â· ${dueSoonAssignments.length} due soon`;
 }
 
 const navAssignmentCount =
@@ -1822,8 +1877,10 @@ if (heroSummary) {
     const duePhrase = dueSoonAssignments.length === 1
         ? "1 assignment is due soon"
         : `${dueSoonAssignments.length} assignments are due soon`;
-    heroSummary.textContent =
-        `Your attendance is ${dashboardOverallPercentage.toFixed(1)}% across ${dashboardTotalClasses} classes. ${duePhrase}; keep your next deadlines in view.`;
+    const attendancePhrase = dashboardTotalClasses
+        ? `Your attendance is ${dashboardOverallPercentage.toFixed(1)}% across ${dashboardTotalClasses} classes.`
+        : "No attendance records have been added yet.";
+    heroSummary.textContent = `${attendancePhrase} ${duePhrase}. Add your records to keep your dashboard current.`;
 }
 
 const dashboardUpcoming =
@@ -1851,10 +1908,10 @@ if (dashboardUpcoming) {
         const message = document.createElement("div");
 
         const heading = document.createElement("strong");
-        heading.textContent = "All caught up";
+        heading.textContent = assignmentsData.length ? "All caught up" : "No assignments added yet";
 
         const description = document.createElement("span");
-        description.textContent = "No upcoming assignments right now.";
+        description.textContent = assignmentsData.length ? "No upcoming assignments right now." : "Use Manage Assignments to add your coursework.";
 
         message.append(heading, description);
         emptyState.append(mark, message);
@@ -1969,67 +2026,39 @@ if (dashboardCourseProgress) {
         return item;
     });
 
-    dashboardCourseProgress.replaceChildren(...courseItems);
+    if (courseItems.length) {
+        dashboardCourseProgress.replaceChildren(...courseItems);
+    } else {
+        const emptyCourses = document.createElement("div");
+        emptyCourses.className = "dashboard-empty-state";
+        const message = document.createElement("div");
+        const heading = document.createElement("strong");
+        heading.textContent = "No courses added yet";
+        const description = document.createElement("span");
+        description.textContent = "Use Manage Courses to add your semester courses.";
+        message.append(heading, description);
+        emptyCourses.appendChild(message);
+        dashboardCourseProgress.replaceChildren(emptyCourses);
+    }
 }
 
 
 /* ================= RECENT ACTIVITY ================= */
 
-const activityData = [
-    {
-        title: "SQL Assignment Submitted",
-        description: "Database Management Systems",
-        time: "Today"
-    },
-    {
-        title: "Web Development Course Completed",
-        description: "Responsive Web Design",
-        time: "Yesterday"
-    },
-    {
-        title: "Python Practice Updated",
-        description: "Completed basic programming exercises",
-        time: "2 days ago"
-    },
-    {
-        title: "Attendance Updated",
-        description: "Current overall attendance recorded",
-        time: "3 days ago"
-    }
-];
-
-const activityContainer =
-    document.getElementById("activityContainer");
+const activityContainer = document.getElementById("activityContainer");
 
 if (activityContainer) {
-
-    activityData.forEach(function(activity) {
-
-        const activityItem =
-            document.createElement("div");
-
-        activityItem.className =
-            "assignment";
-
-        activityItem.innerHTML = `
-            <div>
-                <h6>${activity.title}</h6>
-                <p>${activity.description}</p>
-            </div>
-
-            <span class="text-muted">
-                ${activity.time}
-            </span>
-        `;
-
-        activityContainer.appendChild(
-            activityItem
-        );
-
-    });
-
+    const emptyActivity = document.createElement("div");
+    emptyActivity.className = "dashboard-empty-state";
+    const activityMessage = document.createElement("div");
+    const activityHeading = document.createElement("strong");
+    activityHeading.textContent = "No recent activity yet";
+    const activityDescription = document.createElement("span");
+    activityDescription.textContent = "Your academic updates will appear here when you add records.";
+    activityMessage.append(activityHeading, activityDescription);
+    emptyActivity.appendChild(activityMessage);
+    activityContainer.replaceChildren(emptyActivity);
 }
-
 
 /* ================= THEME TOGGLE ================= */
 
