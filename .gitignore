@@ -1,3 +1,13 @@
 node_modules/
 .env
 .vscode/
+
+# Local backups - never commit
+backups/
+*.backup
+*.backup-*
+*.bak
+
+# Local environment files
+.env.*
+!.env.example
